@@ -150,13 +150,36 @@ textarea.notes:focus{outline:none;border-color:var(--ac)}
   </div>
 </div>
 
+<!-- PROFILE SETTINGS -->
+<div class="setup hidden" id="profileSetup">
+  <div class="setup-box">
+    <h2>Profile</h2>
+    <p>Used for personalized baselines on the radar chart.</p>
+    <input type="text" id="prName" placeholder="Name" style="margin-bottom:8px">
+    <input type="date" id="prBirth" style="margin-bottom:8px;font-family:'JetBrains Mono',monospace">
+    <select id="prGender" style="margin-bottom:8px"><option value="">Gender</option><option>Male</option><option>Female</option></select>
+    <input type="number" id="prHeight" placeholder="Height (cm)" style="margin-bottom:8px">
+    <select id="prEth" style="margin-bottom:8px">
+      <option value="">Ethnicity</option>
+      <option>Vietnamese</option><option>East Asian</option><option>South Asian</option>
+      <option>Southeast Asian</option><option>Caucasian</option><option>African</option>
+      <option>Hispanic</option><option>Other</option>
+    </select>
+    <button class="btn btn-p" onclick="saveProfileSettings()" style="margin-top:8px">Save profile</button>
+    <button class="btn btn-s" onclick="closeProfile()" style="margin-top:8px">Cancel</button>
+  </div>
+</div>
+
 <!-- APP -->
 <div id="app" class="hidden">
   <div class="hdr">
-    <h1>Fitness</h1>
+    <h1 id="appTitle">Fitness</h1>
     <div>
       <div class="sync-s"><span class="sync-dot" id="syncDot"></span><span id="syncTxt">Synced</span></div>
-      <button class="btn-sm" onclick="showSetup()" style="margin-top:4px;font-size:10px">Settings</button>
+      <div style="display:flex;gap:4px;margin-top:4px">
+        <button class="btn-sm" onclick="openProfile()" style="font-size:10px">Profile</button>
+        <button class="btn-sm" onclick="showSetup()" style="font-size:10px">API</button>
+      </div>
     </div>
   </div>
 
@@ -276,6 +299,8 @@ const RESULTS=['Flash','Sent','Project','Failed'];
 let API='', weekOff=0, habits={}, dbt=null, hexChart=null, hexOpen=true;
 let climbGyms=JSON.parse(localStorage.getItem('ft_gyms')||'["Gym A","Gym B"]');
 let routeEntries=[];
+let userProfile={};
+let baselineData={};
 
 // ============ SETUP ============
 function checkSetup(){
@@ -290,6 +315,63 @@ function saveSetup(){
 }
 function showSetup(){$('apiUrl').value=API;$('setup').classList.remove('hidden');$('app').classList.add('hidden');}
 function $(id){return document.getElementById(id);}
+
+// ============ PROFILE ============
+async function loadProfile(){
+  const data=await apiG('getProfile');
+  if(data&&data.profile){
+    userProfile=data.profile;
+    localStorage.setItem('ft_profile',JSON.stringify(userProfile));
+  } else userProfile=JSON.parse(localStorage.getItem('ft_profile')||'{}');
+  if(userProfile.name) $('appTitle').textContent=userProfile.name.split(' ')[0]+"'s Fitness";
+  await loadBaselines();
+}
+function openProfile(){
+  $('prName').value=userProfile.name||'';
+  $('prBirth').value=userProfile.birthdate||'';
+  $('prGender').value=userProfile.gender||'';
+  $('prHeight').value=userProfile.height||'';
+  $('prEth').value=userProfile.ethnicity||'';
+  $('profileSetup').classList.remove('hidden');
+}
+function closeProfile(){$('profileSetup').classList.add('hidden');}
+async function saveProfileSettings(){
+  const p={name:$('prName').value,birthdate:$('prBirth').value,gender:$('prGender').value,height:parseInt($('prHeight').value)||170,ethnicity:$('prEth').value};
+  await apiP('saveProfile',p);
+  userProfile=p;localStorage.setItem('ft_profile',JSON.stringify(p));
+  closeProfile();
+  if(p.name) $('appTitle').textContent=p.name.split(' ')[0]+"'s Fitness";
+  await loadBaselines();
+  computeStats();
+}
+function getAge(){
+  if(!userProfile.birthdate) return 28;
+  const bd=new Date(userProfile.birthdate);
+  const now=new Date();
+  let age=now.getFullYear()-bd.getFullYear();
+  if(now.getMonth()<bd.getMonth()||(now.getMonth()===bd.getMonth()&&now.getDate()<bd.getDate()))age--;
+  return age;
+}
+function getHeight(){return parseInt(userProfile.height)||170;}
+
+// ============ BASELINES ============
+async function loadBaselines(){
+  const eth=userProfile.ethnicity||'General';
+  const gen=userProfile.gender||'Male';
+  const age=getAge();
+  const data=await apiG('getBaselines',{ethnicity:eth,gender:gen,age:String(age)});
+  if(data&&data.baselines) baselineData=data.baselines;
+  else baselineData={};
+}
+function getBaseline(stat,fallback){
+  return baselineData[stat]?parseFloat(baselineData[stat].value):fallback;
+}
+function baselineToRadar(){
+  // Convert health baselines to 0-100 scores (50 = baseline)
+  return {
+    strength:50, endurance:50, agility:50, vitality:50, discipline:50, mind:50
+  };
+}
 
 // ============ API ============
 async function apiG(action,p={}){
@@ -353,14 +435,28 @@ function initHex(){
     type:'radar',
     data:{
       labels:['Strength','Endurance','Agility','Vitality','Discipline','Mind'],
-      datasets:[{
-        data:[10,10,10,10,10,10],
-        backgroundColor:isDark?'rgba(82,183,136,0.15)':'rgba(45,106,79,0.1)',
-        borderColor:isDark?'#52B788':'#2D6A4F',
-        borderWidth:2,
-        pointBackgroundColor:isDark?'#52B788':'#2D6A4F',
-        pointRadius:4
-      }]
+      datasets:[
+        {
+          label:'Baseline',
+          data:[50,50,50,50,50,50],
+          backgroundColor:isDark?'rgba(156,155,150,0.08)':'rgba(107,106,101,0.06)',
+          borderColor:isDark?'rgba(156,155,150,0.4)':'rgba(107,106,101,0.3)',
+          borderWidth:1.5,
+          borderDash:[6,4],
+          pointBackgroundColor:'transparent',
+          pointBorderColor:'transparent',
+          pointRadius:0
+        },
+        {
+          label:'You',
+          data:[10,10,10,10,10,10],
+          backgroundColor:isDark?'rgba(82,183,136,0.15)':'rgba(45,106,79,0.1)',
+          borderColor:isDark?'#52B788':'#2D6A4F',
+          borderWidth:2,
+          pointBackgroundColor:isDark?'#52B788':'#2D6A4F',
+          pointRadius:4
+        }
+      ]
     },
     options:{
       responsive:true,maintainAspectRatio:false,
@@ -377,12 +473,20 @@ function initHex(){
 function updateHex(stats){
   if(!hexChart)return;
   const vals=[stats.strength||10,stats.endurance||10,stats.agility||10,stats.vitality||10,stats.discipline||10,stats.mind||10];
-  hexChart.data.datasets[0].data=vals;
+  const bl=baselineToRadar();
+  const blVals=[bl.strength,bl.endurance,bl.agility,bl.vitality,bl.discipline,bl.mind];
+  hexChart.data.datasets[0].data=blVals;
+  hexChart.data.datasets[1].data=vals;
   hexChart.update('none');
   const labels=['STR','END','AGI','VIT','DSC','MND'];
-  $('hexStats').innerHTML=vals.map((v,i)=>`<div class="hex-stat"><b>${Math.round(v)}</b>${labels[i]}</div>`).join('');
+  $('hexStats').innerHTML=vals.map((v,i)=>{
+    const diff=Math.round(v-blVals[i]);
+    const arrow=diff>0?'<span style="color:var(--ac);font-size:10px"> +'+diff+'</span>':diff<0?'<span style="color:var(--red);font-size:10px"> '+diff+'</span>':'';
+    return `<div class="hex-stat"><b>${Math.round(v)}</b>${labels[i]}${arrow}</div>`;
+  }).join('');
 }
 async function computeStats(){
+  const height=getHeight();
   // Discipline: based on stretch streak and training consistency
   let stretchStreak=0;
   for(let i=0;i>=-12;i--){
@@ -390,14 +494,15 @@ async function computeStats(){
     let has=false;DAYS.forEach(dy=>{if(d[dy]&&d[dy].stretch)has=true;});
     if(has)stretchStreak++;else if(i<0)break;
   }
-  const discipline=Math.min(100,stretchStreak*8+20);
+  const blStreak=getBaseline('discipline_streak',4);
+  const discipline=Math.min(100,Math.round((stretchStreak/blStreak)*50));
 
   // Strength: from climbing and training sessions
   const clData=await apiG('getClimbSessions',{limit:'50'});
-  let climbScore=30;
+  let climbScore=20;
+  const blGrade=getBaseline('strength_grade',3);
   if(clData&&clData.sessions){
-    const sessions=clData.sessions;
-    const recent=sessions.slice(-10);
+    const recent=clData.sessions.slice(-10);
     let gradeSum=0,cnt=0;
     recent.forEach(s=>{
       s.routes.forEach(r=>{
@@ -406,9 +511,8 @@ async function computeStats(){
         }
       });
     });
-    if(cnt>0)climbScore=Math.min(100,Math.round((gradeSum/cnt)*12+20));
+    if(cnt>0)climbScore=Math.min(100,Math.round((gradeSum/cnt)/blGrade*50));
   }
-  // Add BW/ring sessions
   let trainCount=0;
   for(let i=-3;i<=0;i++){
     const wk=wKey(i);const d=JSON.parse(localStorage.getItem('ft_h_'+wk)||'{}');
@@ -418,6 +522,7 @@ async function computeStats(){
 
   // Agility: flash rate + sport variety
   let flashRate=0,sportTypes=new Set();
+  const blFlash=getBaseline('agility_flash',30);
   if(clData&&clData.sessions){
     let flashes=0,sent=0;
     clData.sessions.slice(-10).forEach(s=>{
@@ -429,30 +534,53 @@ async function computeStats(){
     const wk=wKey(i);const d=JSON.parse(localStorage.getItem('ft_h_'+wk)||'{}');
     DAYS.forEach(dy=>{const dd=d[dy]||{};if(dd.sport)sportTypes.add('sport');if(dd.boulder)sportTypes.add('boulder');if(dd.run)sportTypes.add('run');});
   }
-  const agility=Math.min(100,Math.round(flashRate*0.6+sportTypes.size*10+10));
+  const agility=Math.min(100,Math.round((flashRate/blFlash)*40+sportTypes.size*10+10));
 
-  // Endurance: from running (basic for now, uses localStorage pace data)
+  // Endurance: from VO2 max or running data
   let endurance=20;
-  // Will be enhanced when Strava data is available
+  const blVO2=getBaseline('endurance_vo2',40);
+  const bData=await apiG('getMeasurements',{limit:'10'});
+  if(bData&&bData.measurements){
+    for(let i=bData.measurements.length-1;i>=0;i--){
+      if(bData.measurements[i].vo2max){
+        const vo2=parseFloat(bData.measurements[i].vo2max);
+        endurance=Math.min(100,Math.round((vo2/blVO2)*50));
+        break;
+      }
+    }
+  }
 
-  // Vitality: from body measurements
-  let vitality=50;
-  const bData=await apiG('getMeasurements',{limit:'5'});
+  // Vitality: from body measurements (using profile-specific baselines)
+  let vitality=40;
+  const blBF=getBaseline('vitality_bf',18);
+  const blRHR=getBaseline('vitality_rhr',65);
+  const blWH=getBaseline('vitality_wh',0.45);
   if(bData&&bData.measurements&&bData.measurements.length>0){
     const latest=bData.measurements[bData.measurements.length-1];
-    if(latest.waistToHeight&&parseFloat(latest.waistToHeight)<0.5)vitality+=20;
-    if(latest.rhr&&parseFloat(latest.rhr)<65)vitality+=15;
-    if(latest.rhr&&parseFloat(latest.rhr)<55)vitality+=10;
-    vitality=Math.min(100,vitality);
+    let vScore=0,vCount=0;
+    if(latest.bodyFat){
+      const bf=parseFloat(latest.bodyFat);
+      vScore+=Math.max(0,Math.min(100,(1-(bf-blBF)/blBF)*50+25));vCount++;
+    }
+    if(latest.waist){
+      const wh=parseFloat(latest.waist)/(height);
+      vScore+=Math.max(0,Math.min(100,(1-(wh-blWH)/blWH)*50+25));vCount++;
+    }
+    if(latest.rhr){
+      const rhr=parseFloat(latest.rhr);
+      vScore+=Math.max(0,Math.min(100,(1-(rhr-blRHR)/blRHR)*50+35));vCount++;
+    }
+    if(vCount>0)vitality=Math.round(vScore/vCount);
   }
 
   // Mind: chess elo
   let mind=20;
+  const blElo=getBaseline('mind_elo',1000);
   if(bData&&bData.measurements){
     for(let i=bData.measurements.length-1;i>=0;i--){
       if(bData.measurements[i].chessElo){
         const elo=parseInt(bData.measurements[i].chessElo);
-        mind=Math.min(100,Math.round(elo/25));break;
+        mind=Math.min(100,Math.round((elo/blElo)*50));break;
       }
     }
   }
@@ -790,7 +918,9 @@ function init(){
   $('wlbl').textContent=wLabel(0);
   if($('wlblB'))$('wlblB').textContent=wLabel(0);
   loadHabits();initClimb();
-  setTimeout(()=>{computeStats();checkMilestones();},2000);
+  loadProfile().then(()=>{
+    setTimeout(()=>{computeStats();checkMilestones();},1500);
+  });
 }
 checkSetup();
 </script>
