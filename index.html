@@ -165,6 +165,8 @@ textarea.notes:focus{outline:none;border-color:var(--ac)}
       <option>Southeast Asian</option><option>Caucasian</option><option>African</option>
       <option>Hispanic</option><option>Other</option>
     </select>
+    <div style="font-size:12px;color:var(--t2);margin:12px 0 6px;font-weight:600">Dashboard metrics (pick 4)</div>
+    <div id="metricToggles" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>
     <button class="btn btn-p" onclick="saveProfileSettings()" style="margin-top:8px">Save profile</button>
     <button class="btn btn-s" onclick="closeProfile()" style="margin-top:8px">Cancel</button>
   </div>
@@ -248,25 +250,28 @@ textarea.notes:focus{outline:none;border-color:var(--ac)}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg>
       Sync from Apple Health
     </button>
+    <!-- Dashboard -->
+    <div class="stats" style="grid-template-columns:1fr 1fr" id="bodyDashboard"></div>
+    <!-- Universal manual entry -->
     <div class="st">Manual entry</div>
     <div class="card">
-      <div class="frow"><input type="date" id="bDate" class="mono"></div>
-      <div class="frow"><input type="number" step="0.1" id="bWeight" placeholder="Weight"><span class="funit">kg</span></div>
-      <div class="frow"><input type="number" step="0.1" id="bFat" placeholder="Body fat"><span class="funit">%</span></div>
-      <div class="frow"><input type="number" step="0.1" id="bWaist" placeholder="Waist"><span class="funit">cm</span></div>
-      <div class="frow"><input type="number" id="bRHR" placeholder="RHR"><span class="funit">bpm</span></div>
-      <div class="frow"><input type="number" step="0.1" id="bVO2" placeholder="VO2 max"></div>
-      <div class="frow"><input type="number" id="bHRV" placeholder="HRV"><span class="funit">ms</span></div>
-      <div class="frow"><input type="number" id="bElo" placeholder="Chess Elo"></div>
-      <button class="btn btn-p" onclick="saveBodyMeasurement()" style="margin-top:8px">Save</button>
+      <div class="frow">
+        <input type="date" id="bDate" class="mono" style="flex:1">
+        <select id="bType" style="flex:1">
+          <option value="weight">Weight (kg)</option>
+          <option value="bodyFat">Body fat (%)</option>
+          <option value="waist">Waist (cm)</option>
+          <option value="rhr">RHR (bpm)</option>
+          <option value="vo2max">VO2 max</option>
+          <option value="hrv">HRV (ms)</option>
+          <option value="chessElo">Chess Elo</option>
+        </select>
+      </div>
+      <div class="frow">
+        <input type="number" step="0.1" id="bVal" placeholder="Value" style="flex:1">
+        <button class="btn btn-p" onclick="saveBodyManual()" style="width:auto;padding:10px 20px">Save</button>
+      </div>
     </div>
-    <div class="st">Weight this week</div>
-    <div class="wnav">
-      <button onclick="chgWeek(-1)">&larr;</button>
-      <span class="wlbl" id="wlblB"></span>
-      <button onclick="chgWeek(1)">&rarr;</button>
-    </div>
-    <div class="wgrid" id="weightGrid"></div>
     <div class="st">History</div>
     <div id="bodyHistory"></div>
   </div>
@@ -301,6 +306,24 @@ let climbGyms=JSON.parse(localStorage.getItem('ft_gyms')||'["Gym A","Gym B"]');
 let routeEntries=[];
 let userProfile={};
 let baselineData={};
+const ALL_METRICS=[
+  {id:'weight',label:'Avg weight',unit:'kg',key:'weight'},
+  {id:'bodyFat',label:'Body fat',unit:'%',key:'bodyFat'},
+  {id:'waistToHeight',label:'Waist / height',unit:'',key:'waistToHeight'},
+  {id:'waist',label:'Waist',unit:'cm',key:'waist'},
+  {id:'bmi',label:'BMI',unit:'',key:'bmi'},
+  {id:'rhr',label:'RHR',unit:'bpm',key:'rhr'},
+  {id:'vo2max',label:'VO2 max',unit:'',key:'vo2max'},
+  {id:'hrv',label:'HRV',unit:'ms',key:'hrv'},
+  {id:'chessElo',label:'Chess Elo',unit:'',key:'chessElo'}
+];
+const DEFAULT_METRICS=['weight','waistToHeight','rhr','bodyFat'];
+
+function getDashMetrics(){
+  const saved=userProfile.dashMetrics;
+  if(saved){try{return JSON.parse(saved);}catch(e){}}
+  return DEFAULT_METRICS;
+}
 
 // ============ SETUP ============
 function checkSetup(){
@@ -332,17 +355,33 @@ function openProfile(){
   $('prGender').value=userProfile.gender||'';
   $('prHeight').value=userProfile.height||'';
   $('prEth').value=userProfile.ethnicity||'';
+  renderMetricToggles();
   $('profileSetup').classList.remove('hidden');
+}
+function renderMetricToggles(){
+  const active=getDashMetrics();
+  $('metricToggles').innerHTML=ALL_METRICS.map(m=>{
+    const on=active.includes(m.id);
+    return `<span class="chip${on?' on-stretch':''}" onclick="toggleMetric('${m.id}')" style="font-size:12px;padding:6px 12px">${m.label}</span>`;
+  }).join('');
+}
+function toggleMetric(id){
+  let active=getDashMetrics();
+  if(active.includes(id))active=active.filter(x=>x!==id);
+  else active.push(id);
+  userProfile.dashMetrics=JSON.stringify(active);
+  renderMetricToggles();
 }
 function closeProfile(){$('profileSetup').classList.add('hidden');}
 async function saveProfileSettings(){
-  const p={name:$('prName').value,birthdate:$('prBirth').value,gender:$('prGender').value,height:parseInt($('prHeight').value)||170,ethnicity:$('prEth').value};
+  const p={name:$('prName').value,birthdate:$('prBirth').value,gender:$('prGender').value,height:parseInt($('prHeight').value)||170,ethnicity:$('prEth').value,dashMetrics:userProfile.dashMetrics||JSON.stringify(DEFAULT_METRICS)};
   await apiP('saveProfile',p);
   userProfile=p;localStorage.setItem('ft_profile',JSON.stringify(p));
   closeProfile();
   if(p.name) $('appTitle').textContent=p.name.split(' ')[0]+"'s Fitness";
   await loadBaselines();
   computeStats();
+  if(!$('tab-body').classList.contains('hidden'))loadBody();
 }
 function getAge(){
   if(!userProfile.birthdate) return 28;
@@ -415,7 +454,7 @@ function swTab(t,btn){
   TABS.forEach(x=>{const el=$('tab-'+x);if(el)el.classList.toggle('hidden',x!==t);});
   if(t==='climb')loadClimbHistory();
   if(t==='run')loadRuns();
-  if(t==='body'){loadBody();renderWeight();}
+  if(t==='body')loadBody();
 }
 
 // ============ HEXAGON ============
@@ -639,9 +678,7 @@ function chgWeek(dir){
   weekOff+=dir;
   const lbl=wLabel(weekOff);
   $('wlbl').textContent=lbl;
-  if($('wlblB'))$('wlblB').textContent=lbl;
   loadHabits();
-  if(!$('tab-body').classList.contains('hidden'))renderWeight();
 }
 
 // ============ CLIMBING ============
@@ -780,10 +817,44 @@ function pad(n){return n<10?'0'+n:n;}
 async function loadBody(){
   $('bDate').value=new Date().toISOString().split('T')[0];
   const data=await apiG('getMeasurements',{limit:'30'});
-  if(data&&data.measurements)renderBodyHistory(data.measurements);
+  if(!data||!data.measurements||!data.measurements.length){
+    $('bodyDashboard').innerHTML='';
+    $('bodyHistory').innerHTML='<p style="text-align:center;color:var(--t3);padding:20px">No data yet</p>';
+    return;
+  }
+  const ms=data.measurements;
+  const latest={};
+  // Weekly avg weight
+  const wData=await apiG('getWeights',{week:wKey(0)});
+  if(wData&&wData.weights&&wData.weights.length>0){
+    let sum=0,cnt=0;
+    wData.weights.forEach(w=>{if(w.weight){sum+=parseFloat(w.weight);cnt++;}});
+    if(cnt>0)latest.weight=(sum/cnt).toFixed(1);
+  }
+  for(let i=ms.length-1;i>=0;i--){
+    const m=ms[i];
+    if(!latest.weight&&m.weight&&parseFloat(m.weight)>0)latest.weight=parseFloat(m.weight).toFixed(1);
+    if(!latest.bodyFat&&m.bodyFat&&parseFloat(m.bodyFat)>0)latest.bodyFat=parseFloat(m.bodyFat).toFixed(1);
+    if(!latest.waistToHeight&&m.waistToHeight&&parseFloat(m.waistToHeight)>0)latest.waistToHeight=parseFloat(m.waistToHeight).toFixed(2);
+    if(!latest.waist&&m.waist&&parseFloat(m.waist)>0)latest.waist=parseFloat(m.waist).toFixed(1);
+    if(!latest.bmi&&m.bmi&&parseFloat(m.bmi)>0)latest.bmi=parseFloat(m.bmi).toFixed(1);
+    if(!latest.rhr&&m.rhr&&parseFloat(m.rhr)>0)latest.rhr=Math.round(parseFloat(m.rhr));
+    if(!latest.vo2max&&m.vo2max&&parseFloat(m.vo2max)>0)latest.vo2max=parseFloat(m.vo2max).toFixed(1);
+    if(!latest.hrv&&m.hrv&&parseFloat(m.hrv)>0)latest.hrv=Math.round(parseFloat(m.hrv));
+    if(!latest.chessElo&&m.chessElo&&parseInt(m.chessElo)>0)latest.chessElo=parseInt(m.chessElo);
+  }
+  const dashIds=getDashMetrics();
+  let dh='';
+  dashIds.forEach(id=>{
+    const met=ALL_METRICS.find(m=>m.id===id);
+    if(!met)return;
+    dh+=`<div class="stc"><div class="stv">${latest[id]||'—'}</div><div class="stl">${met.label}</div></div>`;
+  });
+  $('bodyDashboard').innerHTML=dh;
+  $('bodyDashboard').style.gridTemplateColumns=dashIds.length===3?'1fr 1fr 1fr':'1fr 1fr';
+  renderBodyHistory(ms);
 }
 function renderBodyHistory(ms){
-  if(!ms.length){$('bodyHistory').innerHTML='<p style="text-align:center;color:var(--t3);padding:20px">No data yet</p>';return;}
   let h='';
   ms.slice().reverse().slice(0,20).forEach(m=>{
     h+=`<div class="hrow"><span class="hrow-d">${m.date}${m.source==='apple_health'?' ♥':''}</span><div class="hrow-v">`;
@@ -797,36 +868,18 @@ function renderBodyHistory(ms){
   });
   $('bodyHistory').innerHTML=h;
 }
-async function saveBodyMeasurement(){
-  const p={date:$('bDate').value,weight:pf('bWeight'),bodyFat:pf('bFat'),waist:pf('bWaist'),rhr:pi('bRHR'),vo2max:pf('bVO2'),hrv:pi('bHRV'),chessElo:pi('bElo'),source:'manual'};
-  if(!p.weight&&!p.waist&&!p.rhr&&!p.chessElo){alert('Enter at least one value');return;}
+async function saveBodyManual(){
+  const type=$('bType').value;
+  const val=parseFloat($('bVal').value);
+  if(isNaN(val)){alert('Enter a value');return;}
+  const p={date:$('bDate').value,source:'manual'};
+  p[type]=val;
   await apiP('saveMeasurement',p);
-  ['bWeight','bFat','bWaist','bRHR','bVO2','bHRV','bElo'].forEach(id=>{$(id).value='';});
+  $('bVal').value='';
   loadBody();
 }
 function pf(id){const v=parseFloat($(id).value);return isNaN(v)?null:v;}
 function pi(id){const v=parseInt($(id).value);return isNaN(v)?null:v;}
-
-// ============ WEIGHT ============
-async function renderWeight(){
-  const dates=wDates(weekOff);const wk=wKey(weekOff);
-  const data=await apiG('getWeights',{week:wk});
-  if(data&&data.weights)data.weights.forEach(w=>{if(w.date&&w.weight)localStorage.setItem('ft_wt_'+w.date,w.weight);});
-  let h='';
-  DAYS.forEach((d,i)=>{
-    const v=localStorage.getItem('ft_wt_'+dates[i])||'';
-    h+=`<div class="wday"><div class="wday-l">${d} · ${dates[i].slice(5)}</div>`;
-    h+=`<input type="number" step="0.1" value="${v}" placeholder="—" onchange="saveWt('${dates[i]}',this.value)"></div>`;
-  });
-  let sum=0,cnt=0;
-  dates.forEach(d=>{const v=parseFloat(localStorage.getItem('ft_wt_'+d));if(!isNaN(v)){sum+=v;cnt++;}});
-  h+=`<div class="wavg"><div class="wavg-v">${cnt>0?(sum/cnt).toFixed(1):'—'}</div><div class="wavg-l">Weekly average (kg)</div></div>`;
-  $('weightGrid').innerHTML=h;
-}
-function saveWt(date,val){
-  if(val)localStorage.setItem('ft_wt_'+date,val);else localStorage.removeItem('ft_wt_'+date);
-  apiP('saveWeight',{date,weight:parseFloat(val)||0,week:wKey(weekOff)});renderWeight();
-}
 
 // ============ HEALTH SYNC ============
 function syncFromHealth(){
@@ -834,7 +887,7 @@ function syncFromHealth(){
   if(isIOS){
     window.location.href='shortcuts://run-shortcut?name='+encodeURIComponent('Fitness Sync');
     document.addEventListener('visibilitychange',function h(){
-      if(!document.hidden){document.removeEventListener('visibilitychange',h);setTimeout(()=>{renderWeight();loadBody();},2000);}
+      if(!document.hidden){document.removeEventListener('visibilitychange',h);setTimeout(()=>{loadBody();},2000);}
     });
   } else alert('Apple Health sync only works on iPhone via the "Fitness Sync" shortcut.');
 }
@@ -916,7 +969,6 @@ async function checkMilestones(){
 function init(){
   initTabs();initHex();
   $('wlbl').textContent=wLabel(0);
-  if($('wlblB'))$('wlblB').textContent=wLabel(0);
   loadHabits();initClimb();
   loadProfile().then(()=>{
     setTimeout(()=>{computeStats();checkMilestones();},1500);
